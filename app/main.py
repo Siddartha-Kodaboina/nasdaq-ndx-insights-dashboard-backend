@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.db_client import create_tables
+from app.queue import job_queue
 import os
 
 # Create routers
@@ -31,6 +32,16 @@ app.include_router(data.router)
 async def startup_event():
     create_tables()
     print("Database tables created on startup")
+    
+    # Start the job queue with 3 worker threads
+    job_queue.start(num_workers=3)
+    print("Job queue started with 3 workers")
+
+# Stop the job queue on shutdown
+@app.on_event("shutdown")
+async def shutdown_event():
+    job_queue.stop()
+    print("Job queue stopped")
 
 @app.get("/")
 async def root():
@@ -39,3 +50,12 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/queue/status")
+async def queue_status():
+    """Get the status of the job queue."""
+    return {
+        "queue_size": job_queue.get_queue_size(),
+        "active_workers": job_queue.get_active_workers(),
+        "jobs": len(job_queue.get_all_jobs())
+    }

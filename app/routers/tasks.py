@@ -6,6 +6,7 @@ from app.utils.db_client import get_db
 from app.models import Task, TaskStatus, TaskType
 from app.schemas import TaskCreate, TaskResponse
 from app.utils.validators import validate_request_body
+from app.services.task_service import TaskService
 
 router = APIRouter(
     prefix="/tasks",
@@ -16,22 +17,19 @@ router = APIRouter(
 @validate_request_body(TaskCreate)
 async def create_task(task_data: Dict[str, Any], db: Session = Depends(get_db)):
     """Create a new data analysis task."""
-    # Implementation will come later
-    # For now, just return a placeholder response
-    return {
-        "id": 1,
-        "task_type": task_data["task_type"],
-        "status": TaskStatus.PENDING.value,
-        "parameters": task_data["parameters"],
-        "created_at": "2025-04-06T00:00:00",
-        "updated_at": "2025-04-06T00:00:00"
-    }
+    task = TaskService.create_task(task_data, db)
+    return task
 
 @router.get("/{task_id}", response_model=TaskResponse)
 async def get_task(task_id: int, db: Session = Depends(get_db)):
     """Get a specific task by ID."""
-    # Implementation will come later
-    return {"message": f"Get task {task_id} endpoint (to be implemented)"}
+    task = TaskService.get_task(task_id, db)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task {task_id} not found"
+        )
+    return task
 
 @router.get("/", response_model=List[TaskResponse])
 async def list_tasks(
@@ -40,5 +38,5 @@ async def list_tasks(
     db: Session = Depends(get_db)
 ):
     """List all tasks with optional filtering."""
-    # Implementation will come later
-    return [{"message": "List tasks endpoint (to be implemented)"}]
+    tasks = TaskService.list_tasks(status, task_type, db)
+    return tasks
