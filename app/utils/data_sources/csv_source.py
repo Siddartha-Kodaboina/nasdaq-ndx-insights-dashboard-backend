@@ -85,17 +85,20 @@ class CSVDataSource(DataSource):
         Returns:
             Normalized DataFrame
         """
-        # Convert Date column to datetime
-        df['Date'] = pd.to_datetime(df['Date'])
+        # Convert column names to lowercase for consistency
+        df.columns = [col.lower() for col in df.columns]
+        
+        # Convert date column to datetime
+        df['date'] = pd.to_datetime(df['date'])
         
         # Ensure all numeric columns are float
-        numeric_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        # Sort by Date and Ticker
-        df = df.sort_values(['Ticker', 'Date'])
+        # Sort by date and ticker
+        df = df.sort_values(['ticker', 'date'])
         
         return df
     
@@ -109,7 +112,7 @@ class CSVDataSource(DataSource):
             raise ValueError("Data not loaded. Use with statement to load data.")
         
         if self._tickers is None:
-            self._tickers = sorted(self.data['Ticker'].unique().tolist())
+            self._tickers = sorted(self.data['ticker'].unique().tolist())
         
         return self._tickers
     
@@ -134,17 +137,17 @@ class CSVDataSource(DataSource):
             raise ValueError("Data not loaded. Use with statement to load data.")
         
         # Filter by ticker
-        ticker_data = self.data[self.data['Ticker'] == ticker]
+        ticker_data = self.data[self.data['ticker'] == ticker]
         
         if ticker_data.empty:
             raise ValueError(f"Ticker {ticker} not found in data source")
         
         # Filter by date range if provided
         if from_date:
-            ticker_data = ticker_data[ticker_data['Date'] >= from_date]
+            ticker_data = ticker_data[ticker_data['date'] >= from_date]
         
         if to_date:
-            ticker_data = ticker_data[ticker_data['Date'] <= to_date]
+            ticker_data = ticker_data[ticker_data['date'] <= to_date]
         
         return ticker_data
     
