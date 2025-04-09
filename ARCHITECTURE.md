@@ -17,7 +17,7 @@ Key objectives include:
 ## System Architecture Diagram
 
 ![ARCHITECTURE DIAGRAM](ARCHITECTURE.png)
-![UML DIAGRAM](UML_DIAGRAM.png)
+![UML CLASS DIAGRAM](UML_CLASS_DIAGRAM.png)
 
 ## Key Components Explained
 
