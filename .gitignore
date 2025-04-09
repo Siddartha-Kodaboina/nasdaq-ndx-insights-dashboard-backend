@@ -49,3 +49,7 @@ Thumbs.db
 
 # Project specific
 db/*.db
+
+# Large data files
+data/source_raw.csv
+*.csv.gz
