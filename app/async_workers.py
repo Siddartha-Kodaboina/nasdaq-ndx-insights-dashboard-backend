@@ -213,21 +213,30 @@ class AsyncTaskProcessor:
             raise ValueError(f"Unknown task type: {self.task.task_type}")
         
         # Mark the task as completed
-        self._update_state(ProcessingState.COMPLETED, progress=100, 
-                          message="Task completed successfully")
-        self.end_time = datetime.now()
-        
-        # Update the task status in the database
-        async with AsyncDBSession() as db:
-            # Get the task again to avoid stale data
-            stmt = select(Task).where(Task.id == self.task_id)
-            result = await db.execute(stmt)
-            task = result.scalar_one_or_none()
+        try:
+            self._update_state(ProcessingState.COMPLETED, progress=100, 
+                            message="Task completed successfully")
+            self.end_time = datetime.now()
+            logger.info(f"Task {self.task_id} processing completed. Updating database status.")
             
-            if task:
-                task.status = TaskStatus.COMPLETED
-                task.end_time = self.end_time
-                await db.commit()
+            # Update the task status in the database
+            async with AsyncDBSession() as db:
+                # Get the task again to avoid stale data
+                stmt = select(Task).where(Task.id == self.task_id)
+                result = await db.execute(stmt)
+                task = result.scalar_one_or_none()
+                
+                if task:
+                    logger.info(f"Updating task {self.task_id} status from {task.status} to {TaskStatus.COMPLETED}")
+                    task.status = TaskStatus.COMPLETED
+                    task.progress = 100.0  # Ensure progress is set to 100%
+                    task.end_time = self.end_time
+                    await db.commit()
+                    logger.info(f"Task {self.task_id} status updated successfully in database")
+                else:
+                    logger.error(f"Task {self.task_id} not found when trying to mark as completed")
+        except Exception as e:
+            logger.exception(f"Error marking task {self.task_id} as completed: {str(e)}")
     
     async def _process_explore_stock(self):
         """Process an explore stock task asynchronously.
@@ -333,9 +342,12 @@ class AsyncTaskProcessor:
         
         self._update_state(ProcessingState.SAVING_RESULTS, progress=90, 
                           message=f"Saved {len(data)} data points to database")
-        
+    
         # Store the result
         self.result = stats
+        
+        # Ensure we mark the task as completed
+        logger.info(f"Task {self.task_id} processing completed successfully")
     
     async def _process_compare_stocks(self):
         """Process a compare stocks task asynchronously.
@@ -623,7 +635,22 @@ class AsyncTaskProcessor:
         try:
             # Run the processing pipeline
             await self._processing_pipeline()
-            
+        
+            # Explicitly ensure the task is marked as completed in the database
+            async with AsyncDBSession() as db:
+                # Get the task
+                stmt = select(Task).where(Task.id == self.task_id)
+                result = await db.execute(stmt)
+                task = result.scalar_one_or_none()
+                
+                if task:
+                    logger.info(f"Final update: Setting task {self.task_id} status to COMPLETED")
+                    task.status = TaskStatus.COMPLETED
+                    task.progress = 100.0
+                    task.end_time = self.end_time
+                    await db.commit()
+                    logger.info(f"Task {self.task_id} marked as COMPLETED in the database")
+        
             # Convert any enum values to strings
             serializable_result = self._convert_enums_to_strings(self.result)
             

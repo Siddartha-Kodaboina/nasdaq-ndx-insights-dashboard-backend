@@ -62,12 +62,30 @@ Once the application is running, access the API documentation at:
 
 ## Testing
 
-Run the test script to verify API functionality:
+Run the test scripts to verify API and data processing functionality:
 ```bash
+# Test basic API endpoints
 python test_task_endpoints.py
+
+# Test all frequency aggregations
+python test_all_frequencies.py
+
+# Test data retrieval endpoints
+python test_data_retrieval.py
+
+# Test comprehensive backend functionality
+python test_backend_comprehensive.py
 ```
 
 ## Recent Updates
+
+### Version 1.5.2 - Enhanced Frequency Aggregation and Error Handling
+- Fixed ME (Month-End) frequency aggregation to properly handle period calculations
+- Enhanced error handling in the async task service
+- Added detailed logging throughout the aggregation process
+- Updated AggregatedStockData schema with additional return fields
+- Added comprehensive test scripts for all frequency aggregations
+- Improved data transformation capabilities with better error handling
 
 ### Async Database Session Management
 - Added `AsyncDBSession` context manager for proper async database session handling

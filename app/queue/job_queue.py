@@ -212,6 +212,13 @@ class JobQueue:
                 
                 if task:
                     task.status = status
+                    
+                    # If the task is being marked as completed, ensure progress is 100%
+                    if status == TaskStatus.COMPLETED:
+                        task.progress = 100.0
+                        task.end_time = datetime.now()
+                        logger.info(f"Marking task {task_id} as COMPLETED with 100% progress")
+                    
                     await db.commit()
                     logger.info(f"Updated task {task_id} status to {status}")
                 else:

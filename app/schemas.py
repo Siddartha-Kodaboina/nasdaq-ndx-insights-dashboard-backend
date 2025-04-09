@@ -17,6 +17,7 @@ class TaskTypeEnum(str, Enum):
 class DataSourceEnum(str, Enum):
     SOURCE_A = "source_a"
     SOURCE_B = "source_b"
+    TRANSFORMED = "transformed"
 
 # Specific parameter schemas for different task types
 class DateRangeParams(BaseModel):
@@ -130,6 +131,22 @@ class TaskStatusResponse(BaseModel):
     class Config:
         orm_mode = True
 
+# Data transformation and aggregation enums
+class ResampleFrequency(str, Enum):
+    """Enum for resampling frequencies."""
+    DAILY = "D"
+    WEEKLY = "W"
+    MONTHLY = "ME"
+    QUARTERLY = "QE"
+    YEARLY = "YE"
+
+class NormalizationMethod(str, Enum):
+    """Enum for normalization methods."""
+    MIN_MAX = "min-max"
+    Z_SCORE = "z-score"
+    PERCENT_CHANGE = "percent_change"
+    FIRST_VALUE = "first_value"
+
 # Stock data schemas
 class StockDataBase(BaseModel):
     """Base schema for stock data."""
@@ -153,3 +170,79 @@ class StockDataResponse(StockDataBase):
 
     class Config:
         orm_mode = True
+
+class StockDataFilter(BaseModel):
+    """Schema for filtering stock data."""
+    ticker: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    min_volume: Optional[float] = None
+    max_volume: Optional[float] = None
+    price_field: Optional[str] = Field("close", description="Price field to filter on (open, high, low, close)")
+    
+    @validator('price_field')
+    def validate_price_field(cls, v):
+        valid_fields = ['open', 'high', 'low', 'close']
+        if v not in valid_fields:
+            raise ValueError(f"Price field must be one of: {', '.join(valid_fields)}")
+        return v
+
+class StockDataTransform(BaseModel):
+    """Schema for transforming stock data."""
+    resample_freq: Optional[ResampleFrequency] = None
+    normalize_method: Optional[NormalizationMethod] = None
+    calculate_returns: Optional[int] = Field(None, description="Period for return calculation")
+    fill_missing_dates: Optional[bool] = Field(False, description="Fill missing dates with NaN values")
+
+class StockDataAggregation(BaseModel):
+    """Schema for aggregating stock data."""
+    group_by: ResampleFrequency
+    include_ohlc: bool = Field(True, description="Include OHLC data in aggregation")
+    include_volume: bool = Field(True, description="Include volume data in aggregation")
+    include_returns: bool = Field(False, description="Include returns data in aggregation")
+
+class AggregatedStockData(BaseModel):
+    """Schema for aggregated stock data response."""
+    ticker: str
+    period_start: datetime
+    period_end: datetime
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None
+    volume: Optional[float] = None
+    returns: Optional[float] = None
+    daily_return: Optional[float] = None
+    weekly_return: Optional[float] = None
+    monthly_return: Optional[float] = None
+    data_points: int
+    source: str
+
+class PaginationParams(BaseModel):
+    """Schema for pagination parameters."""
+    skip: int = Field(0, description="Number of records to skip")
+    limit: int = Field(100, description="Maximum number of records to return")
+    sort_by: str = Field("date", description="Field to sort by")
+    sort_desc: bool = Field(True, description="Sort in descending order if True")
+    
+    @validator('sort_by')
+    def validate_sort_by(cls, v):
+        valid_fields = ['date', 'open', 'high', 'low', 'close', 'volume']
+        if v not in valid_fields:
+            raise ValueError(f"Sort field must be one of: {', '.join(valid_fields)}")
+        return v
+
+class StockDataResponseWithMetadata(BaseModel):
+    """Schema for stock data response with metadata."""
+    data: List[StockDataResponse]
+    metadata: Dict[str, Any] = Field(
+        {
+            "total_count": 0,
+            "page_count": 0,
+            "has_more": False,
+            "statistics": {}
+        },
+        description="Metadata about the response"
+    )

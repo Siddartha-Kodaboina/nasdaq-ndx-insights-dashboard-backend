@@ -127,7 +127,7 @@ def resample_ohlcv(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     
     Args:
         df: Pandas DataFrame with stock data
-        freq: Target frequency ('W' for weekly, 'ME' for monthly, 'YE' for yearly)
+        freq: Target frequency ('W' for weekly, 'ME' for monthly, 'QE' for quarterly, 'YE' for yearly)
     
     Returns:
         Resampled DataFrame
@@ -137,7 +137,19 @@ def resample_ohlcv(df: pd.DataFrame, freq: str) -> pd.DataFrame:
     """
     try:
         if df.empty:
+            logger.warning("Empty DataFrame provided for resampling. Returning empty DataFrame.")
             return df
+        
+        # Log input data for debugging
+        logger.debug(f"Resampling DataFrame with shape {df.shape} to frequency '{freq}'")
+        logger.debug(f"DataFrame columns: {df.columns.tolist()}")
+        if not df.empty:
+            logger.debug(f"First row before resampling: {df.iloc[0].to_dict()}")
+        
+        # Validate frequency string
+        valid_freqs = ['D', 'W', 'M', 'ME', 'Q', 'QE', 'Y', 'YE']
+        if freq not in valid_freqs:
+            logger.warning(f"Frequency '{freq}' may not be valid. Valid frequencies are: {valid_freqs}")
         
         # Check if we have the necessary columns
         required_columns = ['open', 'high', 'low', 'close', 'volume']
@@ -146,33 +158,138 @@ def resample_ohlcv(df: pd.DataFrame, freq: str) -> pd.DataFrame:
         if missing_columns:
             logger.warning(f"Missing columns for proper OHLCV resampling: {missing_columns}")
         
+        # Check for duplicate indices and handle them
+        if df.index.duplicated().any():
+            logger.warning(f"Found {df.index.duplicated().sum()} duplicate date indices. Taking the last occurrence.")
+            df = df[~df.index.duplicated(keep='last')]
+        
+        # Ensure index is datetime type
+        if not isinstance(df.index, pd.DatetimeIndex):
+            logger.warning("Index is not DatetimeIndex. Attempting to convert...")
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception as e:
+                logger.error(f"Failed to convert index to datetime: {e}")
+                raise DataTransformationError(f"Index must be DatetimeIndex for resampling: {e}")
+        
         # Create a copy to avoid modifying the original
         resampled = pd.DataFrame()
         
-        # Preserve ticker column if it exists
+        # Add data_points column to track how many points went into each resampled period
+        df['data_points'] = 1
+        
+        # Store non-numeric columns that need to be preserved after resampling
+        ticker_value = None
+        source_value = None
+        
+        # For ticker column, use the first value if all values are the same, otherwise use 'MULTIPLE'
         if 'ticker' in df.columns:
-            resampled['ticker'] = df['ticker'].iloc[0] if df['ticker'].nunique() == 1 else 'MULTIPLE'
+            # Fill NaN values in ticker column with 'unknown'
+            if df['ticker'].isna().any():
+                logger.warning(f"Found {df['ticker'].isna().sum()} NaN values in ticker column. Filling with 'unknown'")
+                df['ticker'] = df['ticker'].fillna('unknown')
+                
+            unique_tickers = df['ticker'].unique()
+            logger.debug(f"Found {len(unique_tickers)} unique tickers: {unique_tickers}")
+            
+            if len(unique_tickers) == 1:
+                ticker_value = unique_tickers[0]
+            elif len(unique_tickers) > 1:
+                ticker_value = 'MULTIPLE'
+            else:
+                ticker_value = 'unknown'
+            
+        # For source column, use the first value if all values are the same, otherwise use 'transformed'
+        if 'source' in df.columns:
+            # Fill NaN values in source column with 'transformed'
+            if df['source'].isna().any():
+                logger.warning(f"Found {df['source'].isna().sum()} NaN values in source column. Filling with 'transformed'")
+                df['source'] = df['source'].fillna('transformed')
+                
+            unique_sources = df['source'].unique()
+            logger.debug(f"Found {len(unique_sources)} unique sources: {unique_sources}")
+            
+            if len(unique_sources) == 1:
+                source_value = unique_sources[0]
+            elif len(unique_sources) > 1:
+                source_value = 'transformed'
+            else:
+                source_value = 'transformed'
         
         # Resample with proper OHLCV aggregation
-        if 'open' in df.columns:
-            resampled['open'] = df['open'].resample(freq).first()
+        try:
+            if 'open' in df.columns:
+                resampled['open'] = df['open'].resample(freq).first()
+            
+            if 'high' in df.columns:
+                resampled['high'] = df['high'].resample(freq).max()
+            
+            if 'low' in df.columns:
+                resampled['low'] = df['low'].resample(freq).min()
+            
+            if 'close' in df.columns:
+                resampled['close'] = df['close'].resample(freq).last()
+            
+            if 'volume' in df.columns:
+                resampled['volume'] = df['volume'].resample(freq).sum()
+                
+            # Count data points in each period
+            resampled['data_points'] = df['data_points'].resample(freq).sum()
+            
+            # Add back the ticker and source columns after resampling
+            if ticker_value is not None:
+                resampled['ticker'] = ticker_value
+                
+            if source_value is not None:
+                resampled['source'] = source_value
+                
+            logger.debug(f"Successfully resampled data to frequency '{freq}' with shape {resampled.shape}")
+            if not resampled.empty:
+                logger.debug(f"First row after resampling: {resampled.iloc[0].to_dict()}")
+        except Exception as e:
+            logger.error(f"Error during resampling operations: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
         
-        if 'high' in df.columns:
-            resampled['high'] = df['high'].resample(freq).max()
+        # Drop rows with NaN values in all OHLCV columns
+        ohlcv_columns = [col for col in ['open', 'high', 'low', 'close', 'volume'] if col in resampled.columns]
+        if ohlcv_columns:
+            # Count NaN values before dropping
+            nan_count_before = resampled[ohlcv_columns].isna().sum().sum()
+            logger.debug(f"Found {nan_count_before} NaN values in OHLCV columns before dropping")
+            
+            resampled = resampled.dropna(subset=ohlcv_columns, how='all')
+            
+            # Count rows after dropping
+            logger.debug(f"DataFrame shape after dropping NaN rows: {resampled.shape}")
+            
+        # Ensure we have at least one row
+        if resampled.empty:
+            logger.warning(f"Resampling resulted in empty DataFrame with frequency {freq}")
+            # Create a minimal DataFrame with the same structure but include ticker and source
+            empty_df = pd.DataFrame(columns=resampled.columns)
+            if ticker_value is not None:
+                empty_df['ticker'] = ticker_value
+            if source_value is not None:
+                empty_df['source'] = source_value
+            return empty_df
         
-        if 'low' in df.columns:
-            resampled['low'] = df['low'].resample(freq).min()
-        
-        if 'close' in df.columns:
-            resampled['close'] = df['close'].resample(freq).last()
-        
-        if 'volume' in df.columns:
-            resampled['volume'] = df['volume'].resample(freq).sum()
-        
+        # Final check to ensure ticker and source columns exist and have no NaN values
+        if 'ticker' in resampled.columns and resampled['ticker'].isna().any():
+            logger.warning("Found NaN values in ticker column after resampling. Setting to ticker_value")
+            resampled['ticker'] = ticker_value
+            
+        if 'source' in resampled.columns and resampled['source'].isna().any():
+            logger.warning("Found NaN values in source column after resampling. Setting to source_value")
+            resampled['source'] = source_value
+            
         return resampled
     
     except Exception as e:
         logger.error(f"Error resampling data: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise DataTransformationError(f"Failed to resample data: {e}")
 
 def normalize_data(df: pd.DataFrame, method: str = 'min-max') -> pd.DataFrame:
