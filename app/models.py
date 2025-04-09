@@ -37,6 +37,11 @@ class Task(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
+    # Task progress tracking
+    progress = Column(Float, default=0.0)  # Progress as a percentage (0-100)
+    error_message = Column(String, nullable=True)  # Error message if task failed
+    estimated_completion_time = Column(DateTime, nullable=True)  # Estimated time when task will complete
+    
     # Relationship with StockData
     stock_data = relationship("StockData", back_populates="task")
     

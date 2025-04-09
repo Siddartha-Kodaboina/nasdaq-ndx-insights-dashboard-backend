@@ -21,20 +21,31 @@ def validate_request_body(model: Type[BaseModel]):
             # data is guaranteed to be valid
             pass
     """
+    logger.info(f"Setting up validate_request_body decorator with model: {model.__name__}")
+    
     def decorator(func: Callable):
+        logger.info(f"Decorating function: {func.__name__}")
+        
         @wraps(func)
         async def wrapper(*args, **kwargs):
+            logger.info(f"Validating request body for {func.__name__}")
+            logger.info(f"Args: {args}, Kwargs keys: {list(kwargs.keys())}")
+            
             # Find the first dict argument
             data = None
-            for arg in args:
+            for i, arg in enumerate(args):
+                logger.info(f"Checking arg {i}: {type(arg)}")
                 if isinstance(arg, dict):
                     data = arg
+                    logger.info(f"Found dict arg at position {i}")
                     break
             
             if data is None:
                 for key, value in kwargs.items():
+                    logger.info(f"Checking kwarg {key}: {type(value)}")
                     if isinstance(value, dict):
                         data = value
+                        logger.info(f"Found dict kwarg with key {key}")
                         break
             
             if data is None:
@@ -44,21 +55,33 @@ def validate_request_body(model: Type[BaseModel]):
                     detail="Internal server error"
                 )
             
+            logger.info(f"Found data to validate: {data}")
+            
             try:
                 # Validate data against model
+                logger.info(f"Validating data against {model.__name__}")
                 validated_data = model(**data)
+                logger.info(f"Validation successful: {validated_data}")
                 
-                # Replace the original dict with the validated model
+                # Convert the validated model back to a dictionary
+                # This is needed because in Pydantic v2, models are not subscriptable
+                validated_dict = validated_data.model_dump()
+                logger.info(f"Converted to dict: {validated_dict}")
+                
+                # Replace the original dict with the validated dict
                 if data in args:
+                    logger.info("Replacing dict in args")
                     args_list = list(args)
-                    args_list[args.index(data)] = validated_data
+                    args_list[args.index(data)] = validated_dict
                     args = tuple(args_list)
                 else:
                     for key, value in kwargs.items():
                         if value is data:
-                            kwargs[key] = validated_data
+                            logger.info(f"Replacing dict in kwargs with key {key}")
+                            kwargs[key] = validated_dict
                             break
                 
+                logger.info(f"Calling {func.__name__} with validated data")
                 return await func(*args, **kwargs)
             
             except ValidationError as e:

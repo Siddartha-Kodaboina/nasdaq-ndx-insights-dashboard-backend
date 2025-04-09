@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 
 from app.models import Task, StockData, TaskStatus, TaskType, DataSource as DataSourceEnum
-from app.utils.async_db_client import get_async_db
+from app.utils.async_db_client import AsyncDBSession
 from app.utils.data_sources import get_data_source
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,12 +139,12 @@ class AsyncTaskProcessor:
         
         Updates the task state to indicate timeout and updates the database.
         """
-        self._update_state(ProcessingState.TIMEOUT, progress=self.progress, 
-                          message=f"Task timed out")
+        self.error = "Task processing timed out"
         self.end_time = datetime.now()
+        self._update_state(ProcessingState.TIMEOUT, message="Task processing timed out")
         
         # Update the task status in the database
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Get the task
             stmt = select(Task).where(Task.id == self.task_id)
             result = await db.execute(stmt)
@@ -152,7 +152,6 @@ class AsyncTaskProcessor:
             
             if task:
                 task.status = TaskStatus.FAILED
-                task.end_time = self.end_time
                 task.error = "Task processing timed out"
                 await db.commit()
     
@@ -161,20 +160,19 @@ class AsyncTaskProcessor:
         
         Updates the task state to indicate cancellation and updates the database.
         """
-        self._update_state(ProcessingState.CANCELLED, progress=self.progress, 
-                          message=f"Task was cancelled")
+        self.error = "Task was cancelled"
         self.end_time = datetime.now()
+        self._update_state(ProcessingState.CANCELLED, message="Task was cancelled")
         
         # Update the task status in the database
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Get the task
             stmt = select(Task).where(Task.id == self.task_id)
             result = await db.execute(stmt)
             task = result.scalar_one_or_none()
             
             if task:
-                task.status = TaskStatus.FAILED
-                task.end_time = self.end_time
+                task.status = TaskStatus.CANCELLED
                 task.error = "Task was cancelled"
                 await db.commit()
     
@@ -183,17 +181,23 @@ class AsyncTaskProcessor:
         
         Implements the main task processing logic.
         """
-        # Initialize the task
-        self._update_state(ProcessingState.INITIALIZING, progress=0, message="Initializing task")
+        self._update_state(ProcessingState.INITIALIZING, progress=0, 
+                          message="Initializing task processor")
         
         # Load the task from the database
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
+            # Get the task
             stmt = select(Task).where(Task.id == self.task_id)
             result = await db.execute(stmt)
             self.task = result.scalar_one_or_none()
             
             if not self.task:
                 raise ValueError(f"Task {self.task_id} not found")
+                
+            # Update the task status to in progress
+            self.task.status = TaskStatus.IN_PROGRESS
+            self.task.progress = 0
+            await db.commit()
         
         self._update_state(ProcessingState.INITIALIZING, progress=10, 
                           message=f"Task loaded: {self.task.task_type}")
@@ -214,7 +218,7 @@ class AsyncTaskProcessor:
         self.end_time = datetime.now()
         
         # Update the task status in the database
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Get the task again to avoid stale data
             stmt = select(Task).where(Task.id == self.task_id)
             result = await db.execute(stmt)
@@ -304,7 +308,7 @@ class AsyncTaskProcessor:
         self._update_state(ProcessingState.SAVING_RESULTS, progress=80, 
                           message="Saving results to database")
         
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Save the processed data points
             for _, row in data.iterrows():
                 # Ensure date is a datetime object
@@ -427,7 +431,7 @@ class AsyncTaskProcessor:
         self._update_state(ProcessingState.SAVING_RESULTS, progress=80, 
                           message="Saving results to database")
         
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Save the processed data points for both tickers
             for ticker, data in [(ticker1, data1), (ticker2, data2)]:
                 for _, row in data.iterrows():
@@ -562,7 +566,7 @@ class AsyncTaskProcessor:
         self._update_state(ProcessingState.SAVING_RESULTS, progress=80, 
                           message="Saving results to database")
         
-        async with get_async_db() as db:
+        async with AsyncDBSession() as db:
             # Save the processed data points for both tickers
             for ticker_name, data in [(ticker, stock_data), (index_ticker, index_data)]:
                 for _, row in data.iterrows():
@@ -638,7 +642,7 @@ class AsyncTaskProcessor:
             self._update_state(ProcessingState.FAILED, message=f"Error: {str(e)}")
             
             # Update the task status in the database
-            async with get_async_db() as db:
+            async with AsyncDBSession() as db:
                 # Get the task
                 stmt = select(Task).where(Task.id == self.task_id)
                 result = await db.execute(stmt)

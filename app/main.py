@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.utils.db_client import create_tables
-from app.queue import job_queue
+from app.queue.job_queue import job_queue
 import os
 
 # Create routers

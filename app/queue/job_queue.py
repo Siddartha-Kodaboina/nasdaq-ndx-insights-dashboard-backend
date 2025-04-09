@@ -152,15 +152,25 @@ class JobQueue:
             # Update job status to in progress
             job.status = TaskStatus.IN_PROGRESS
             job.started_at = datetime.now()
-            self._update_task_status(job.task_id, TaskStatus.IN_PROGRESS)
             
-            # Execute the job function
-            job.result = job.func(*job.args, **job.kwargs)
+            # Create an event loop for async operations if needed
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Update task status to in progress
+            loop.run_until_complete(self._update_task_status(job.task_id, TaskStatus.IN_PROGRESS))
+            
+            # Execute the job function - since it's async, we need to run it in the event loop
+            job.result = loop.run_until_complete(job.func(*job.args, **job.kwargs))
             
             # Update job status to completed
             job.status = TaskStatus.COMPLETED
             job.completed_at = datetime.now()
-            self._update_task_status(job.task_id, TaskStatus.COMPLETED)
+            loop.run_until_complete(self._update_task_status(job.task_id, TaskStatus.COMPLETED))
+            
+            # Close the event loop
+            loop.close()
             
             logger.info(f"Job {job.id} for task {job.task_id} completed successfully")
         
@@ -169,26 +179,40 @@ class JobQueue:
             job.status = TaskStatus.FAILED
             job.error = str(e)
             job.completed_at = datetime.now()
-            self._update_task_status(job.task_id, TaskStatus.FAILED)
+            
+            # Create an event loop for the async operation if needed
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._update_task_status(job.task_id, TaskStatus.FAILED))
+                loop.close()
+            except Exception as inner_e:
+                logger.exception(f"Error updating task status: {inner_e}")
             
             logger.exception(f"Job {job.id} for task {job.task_id} failed: {e}")
     
-    def _update_task_status(self, task_id: int, status: TaskStatus):
+    async def _update_task_status(self, task_id: int, status: TaskStatus):
         """Update the status of a task in the database.
         
         Args:
             task_id: ID of the task to update
             status: New status for the task
         """
-        from app.utils.db_client import get_db
+        from app.utils.async_db_client import AsyncDBSession
         from app.models import Task
+        from sqlalchemy import select
         
         try:
-            with get_db() as db:
-                task = db.query(Task).filter(Task.id == task_id).first()
+            async with AsyncDBSession() as db:
+                # Get the task
+                stmt = select(Task).where(Task.id == task_id)
+                result = await db.execute(stmt)
+                task = result.scalar_one_or_none()
+                
                 if task:
                     task.status = status
-                    db.commit()
+                    await db.commit()
                     logger.info(f"Updated task {task_id} status to {status}")
                 else:
                     logger.warning(f"Task {task_id} not found")

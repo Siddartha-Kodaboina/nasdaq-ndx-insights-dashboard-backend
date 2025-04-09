@@ -101,14 +101,32 @@ class TaskCreate(TaskBase):
         
         return values
 
-class TaskResponse(TaskBase):
-    """Schema for task response."""
+class TaskResponse(BaseModel):
+    """Response model for tasks."""
     id: int
-    status: TaskStatusEnum
+    task_type: str
+    status: str
     parameters: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    progress: Optional[float] = None
+    error_message: Optional[str] = None
+    estimated_completion_time: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
 
+class TaskStatusResponse(BaseModel):
+    """Schema for detailed task status response."""
+    task_id: int
+    status: TaskStatusEnum
+    progress: float = 0.0
+    elapsed_time: Optional[float] = None  # in seconds
+    estimated_time_remaining: Optional[float] = None  # in seconds
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    
     class Config:
         orm_mode = True
 
