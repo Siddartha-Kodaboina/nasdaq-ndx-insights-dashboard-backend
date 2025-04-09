@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any, Union
@@ -13,10 +13,20 @@ from app.schemas import (
     PaginationParams, StockDataResponseWithMetadata, AggregatedStockData,
     ResampleFrequency, NormalizationMethod
 )
-from app.utils.validators import validate_request_body
+from app.utils.validators import (
+    validate_request_body, validate_ticker, validate_date_range,
+    validate_numeric_range, validate_query_parameters, validate_pagination
+)
+from app.middleware.rate_limiter import create_rate_limit_decorator
 from app.services.async_task_service import AsyncTaskService
 
 logger = logging.getLogger(__name__)
+
+# Create rate limit decorators for different endpoints
+create_task_rate_limit = create_rate_limit_decorator(limit=30, period=60)
+list_tasks_rate_limit = create_rate_limit_decorator(limit=100, period=60)
+get_data_rate_limit = create_rate_limit_decorator(limit=200, period=60)
+get_aggregated_data_rate_limit = create_rate_limit_decorator(limit=50, period=60)
 
 router = APIRouter(
     prefix="/tasks",
@@ -25,7 +35,9 @@ router = APIRouter(
 
 @router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 @validate_request_body(TaskCreate)
-async def create_task(task_data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
+async def create_task(request: Request, task_data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
+    # Apply rate limiting
+    await create_task_rate_limit(request)
     """Create a new data analysis task."""
     logger.info(f"Router received create_task request with task_type: {task_data.get('task_type')}")
     logger.info(f"Router received db object type: {type(db)}, ID: {id(db)}")
@@ -57,6 +69,7 @@ async def create_task(task_data: Dict[str, Any], db: AsyncSession = Depends(get_
         raise
 
 @router.get("/{task_id}", response_model=TaskResponse)
+@validate_numeric_range('task_id', min_value=1)
 async def get_task(task_id: int, db: AsyncSession = Depends(get_async_db)):
     """Get a specific task by ID."""
     task = await AsyncTaskService.get_task(task_id, db)
@@ -83,6 +96,7 @@ async def get_task(task_id: int, db: AsyncSession = Depends(get_async_db)):
     return TaskResponse(**task_dict)
 
 @router.get("/{task_id}/status", response_model=TaskStatusResponse)
+@validate_numeric_range('task_id', min_value=1)
 async def get_task_status(task_id: int, db: AsyncSession = Depends(get_async_db)):
     """Get detailed status information for a specific task.
     
@@ -99,7 +113,10 @@ async def get_task_status(task_id: int, db: AsyncSession = Depends(get_async_db)
     return task_status
 
 @router.get("/", response_model=List[TaskResponse])
+@validate_pagination(max_limit=200, default_limit=100)
+@validate_query_parameters
 async def list_tasks(
+    request: Request,
     status: Optional[str] = None,
     task_type: Optional[str] = None,
     skip: int = 0,
@@ -108,6 +125,8 @@ async def list_tasks(
     sort_desc: bool = True,
     db: AsyncSession = Depends(get_async_db)
 ):
+    # Apply rate limiting
+    await list_tasks_rate_limit(request)
     """List all tasks with optional filtering.
     
     Args:
@@ -146,13 +165,18 @@ async def list_tasks(
     return result
 
 @router.get("/{task_id}/data", response_model=List[StockDataResponse])
+@validate_numeric_range('task_id', min_value=1)
+@validate_pagination(max_limit=500, default_limit=100)
 async def get_task_data(
+    request: Request,
     task_id: int,
     ticker: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_async_db)
 ):
+    # Apply rate limiting
+    await get_data_rate_limit(request)
     """Get data for a specific task with basic pagination and filtering.
     
     Args:
@@ -212,10 +236,13 @@ async def get_task_data(
     return result
 
 @router.get("/{task_id}/data/advanced", response_model=StockDataResponseWithMetadata)
+@validate_numeric_range('task_id', min_value=1)
+@validate_date_range
+@validate_pagination(max_limit=500, default_limit=100)
+@validate_query_parameters
 async def get_filtered_task_data(
+    request: Request,
     task_id: int,
-    db: AsyncSession = Depends(get_async_db),
-    # Filter parameters
     ticker: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
@@ -224,7 +251,6 @@ async def get_filtered_task_data(
     min_volume: Optional[float] = None,
     max_volume: Optional[float] = None,
     price_field: str = "close",
-    # Pagination parameters
     skip: int = 0,
     limit: int = 100,
     sort_by: str = "date",
@@ -233,8 +259,11 @@ async def get_filtered_task_data(
     resample_freq: Optional[str] = None,
     normalize_method: Optional[str] = None,
     calculate_returns_period: Optional[int] = None,
-    fill_missing_dates: bool = False
+    fill_missing_dates: bool = False,
+    db: AsyncSession = Depends(get_async_db)
 ):
+    # Apply rate limiting
+    await get_data_rate_limit(request)
     """Get data for a specific task with advanced filtering, pagination, and transformation options.
     
     Args:
@@ -320,7 +349,11 @@ async def get_filtered_task_data(
         )
 
 @router.get("/{task_id}/aggregated", response_model=List[AggregatedStockData])
+@validate_numeric_range('task_id', min_value=1)
+@validate_date_range
+@validate_query_parameters
 async def get_aggregated_task_data(
+    request: Request,
     task_id: int,
     group_by: ResampleFrequency,
     include_ohlc: bool = True,
@@ -336,6 +369,8 @@ async def get_aggregated_task_data(
     price_field: str = "close",
     db: AsyncSession = Depends(get_async_db)
 ):
+    # Apply rate limiting
+    await get_aggregated_data_rate_limit(request)
     """Get aggregated data for a specific task.
     
     Args:

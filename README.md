@@ -75,9 +75,20 @@ python test_data_retrieval.py
 
 # Test comprehensive backend functionality
 python test_backend_comprehensive.py
+
+# Test error handling and validation
+python test_error_handling.py
 ```
 
 ## Recent Updates
+
+### Version 1.5.3 - Robust Error Handling and Validation System
+- Implemented global error handling middleware for consistent error responses
+- Added rate limiting middleware to prevent API abuse
+- Created comprehensive validation decorators for request data
+- Enhanced API endpoints with proper validation and rate limiting
+- Added unit tests for validation and rate limiting components
+- Created detailed documentation for the error handling system
 
 ### Version 1.5.2 - Enhanced Frequency Aggregation and Error Handling
 - Fixed ME (Month-End) frequency aggregation to properly handle period calculations
@@ -96,6 +107,12 @@ python test_backend_comprehensive.py
 - Improved error handling during task processing
 - Fixed task status updates in the job queue
 - Ensured proper data population in the stock_data table
+
+### Error Handling and Validation
+- Global error handling middleware with consistent JSON responses
+- Validation decorators for various data types and constraints
+- Rate limiting with token bucket algorithm
+- Comprehensive documentation in `docs/error_handling.md`
 
 ## License
 
